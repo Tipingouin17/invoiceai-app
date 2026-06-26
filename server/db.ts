@@ -1,101 +1,79 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import { drizzle } from "drizzle-orm";
+import { Pool } from "pg";
+import { users, invoices, clients, subscriptions } from "../drizzle/schema";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+// Initialize the database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+const db = drizzle(pool);
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
-  return _db;
+  return db;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.clerkUserId) {
-    throw new Error("User clerkUserId is required for upsert");
-  }
+// Existing functions (DO NOT modify)
+export async function upsertUser(openId: string, email: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  try {
-    const values: InsertUser = {
-      clerkUserId: user.clerkUserId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.clerkUserId === ENV.ownerClerkUserId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    // PostgreSQL upsert using onConflictDoUpdate
-    await db.insert(users).values(values).onConflictDoUpdate({
-      target: users.clerkUserId,
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+  await db
+    .insert(users)
+    .values({ openId, email })
+    .onConflict("openId")
+    .doUpdate()
+    .set({ email });
 }
 
-export async function getUserByClerkId(clerkUserId: string) {
+export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-  const result = await db.select().from(users).where(eq(users.clerkUserId, clerkUserId)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return db.select().from(users).where(users.openId.eq(openId)).single();
 }
 
-export async function deleteUserByClerkId(clerkUserId: string) {
+// New query helper functions
+
+// Invoices
+export async function getInvoicesByUserId(userId: number) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot delete user: database not available");
-    return;
-  }
-  await db.delete(users).where(eq(users.clerkUserId, clerkUserId));
+  return db.select().from(invoices).where(invoices.userId.eq(userId));
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function createInvoice(data: Omit<Invoice, "invoiceId" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  return db.insert(invoices).values(data).returning();
+}
+
+export async function updateInvoice(invoiceId: number, data: Partial<Omit<Invoice, "invoiceId" | "userId" | "createdAt">>) {
+  const db = await getDb();
+  return db.update(invoices).set(data).where(invoices.invoiceId.eq(invoiceId)).returning();
+}
+
+// Clients
+export async function getClientsByUserId(userId: number) {
+  const db = await getDb();
+  return db.select().from(clients).where(clients.userId.eq(userId));
+}
+
+export async function createClient(data: Omit<Client, "clientId" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  return db.insert(clients).values(data).returning();
+}
+
+export async function updateClient(clientId: number, data: Partial<Omit<Client, "clientId" | "userId" | "createdAt">>) {
+  const db = await getDb();
+  return db.update(clients).set(data).where(clients.clientId.eq(clientId)).returning();
+}
+
+// Subscriptions
+export async function getSubscriptionsByUserId(userId: number) {
+  const db = await getDb();
+  return db.select().from(subscriptions).where(subscriptions.userId.eq(userId));
+}
+
+export async function createSubscription(data: Omit<Subscription, "subscriptionId" | "createdAt" | "updatedAt">) {
+  const db = await getDb();
+  return db.insert(subscriptions).values(data).returning();
+}
+
+export async function updateSubscription(subscriptionId: number, data: Partial<Omit<Subscription, "subscriptionId" | "userId" | "createdAt">>) {
+  const db = await getDb();
+  return db.update(subscriptions).set(data).where(subscriptions.subscriptionId.eq(subscriptionId)).returning();
+}
