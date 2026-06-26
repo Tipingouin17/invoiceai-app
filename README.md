@@ -1,26 +1,24 @@
 # InvoiceAI
 
-> Effortless invoicing for freelancers and small agencies
+> Effortless Invoice Management for Freelancers
 
 ## Overview
 
-**Problem:** automatically generates invoices from time tracking data, sends them via email, and follows up on late payments
+**Problem:** helps freelancers manage their invoices automatically using AI
 
-**Solution:** an AI-powered invoice automation tool
+**Solution:** a SaaS tool that automates invoice management using AI
 
 ## Features
 
 - Stripe
-- Resend
-- Google Calendar
-- GitHub
+- QuickBooks
 
 ## Tech Stack
 
 - **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS + shadcn/ui
 - **Backend**: Node.js + Express + tRPC
-- **Database**: MySQL + Drizzle ORM
-- **Auth**: Manus OAuth
+- **Database**: PostgreSQL + Drizzle ORM
+- **Auth**: Clerk
 - **Payments**: Stripe
 
 ## Getting Started
