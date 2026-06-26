@@ -1,81 +1,101 @@
-import { drizzle } from "drizzle-orm";
-import { Pool } from "pg";
-import { users, invoices, clients, subscriptions } from "../drizzle/schema";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { InsertUser, users } from "../drizzle/schema";
+import { ENV } from './_core/env';
 
-// Initialize the database connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+let _db: ReturnType<typeof drizzle> | null = null;
 
-export const getDb = async () => {
-  const client = await pool.connect();
-  try {
-    return drizzle(client);
-  } finally {
-    client.release();
+// Lazily create the drizzle instance so local tooling can run without a DB.
+export async function getDb() {
+  if (!_db && process.env.DATABASE_URL) {
+    try {
+      _db = drizzle(process.env.DATABASE_URL);
+    } catch (error) {
+      console.warn("[Database] Failed to connect:", error);
+      _db = null;
+    }
   }
-};
+  return _db;
+}
 
-// Existing functions (DO NOT MODIFY)
-export const upsertUser = async (user: { id: string; email: string }) => {
+export async function upsertUser(user: InsertUser): Promise<void> {
+  if (!user.clerkUserId) {
+    throw new Error("User clerkUserId is required for upsert");
+  }
   const db = await getDb();
-  await db!.insert(users).values({
-    id: user.id,
-    email: user.email,
-  }).onConflictDoUpdate({
-    target: users.id,
-    set: { email: user.email },
-  });
-};
+  if (!db) {
+    console.warn("[Database] Cannot upsert user: database not available");
+    return;
+  }
 
-export const getUserByOpenId = async (openId: string) => {
+  try {
+    const values: InsertUser = {
+      clerkUserId: user.clerkUserId,
+    };
+    const updateSet: Record<string, unknown> = {};
+
+    const textFields = ["name", "email", "loginMethod"] as const;
+    type TextField = (typeof textFields)[number];
+
+    const assignNullable = (field: TextField) => {
+      const value = user[field];
+      if (value === undefined) return;
+      const normalized = value ?? null;
+      values[field] = normalized;
+      updateSet[field] = normalized;
+    };
+
+    textFields.forEach(assignNullable);
+
+    if (user.lastSignedIn !== undefined) {
+      values.lastSignedIn = user.lastSignedIn;
+      updateSet.lastSignedIn = user.lastSignedIn;
+    }
+
+    if (user.role !== undefined) {
+      values.role = user.role;
+      updateSet.role = user.role;
+    } else if (user.clerkUserId === ENV.ownerClerkUserId) {
+      values.role = 'admin';
+      updateSet.role = 'admin';
+    }
+
+    if (!values.lastSignedIn) {
+      values.lastSignedIn = new Date();
+    }
+
+    if (Object.keys(updateSet).length === 0) {
+      updateSet.lastSignedIn = new Date();
+    }
+
+    // PostgreSQL upsert using onConflictDoUpdate
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.clerkUserId,
+      set: updateSet,
+    });
+  } catch (error) {
+    console.error("[Database] Failed to upsert user:", error);
+    throw error;
+  }
+}
+
+export async function getUserByClerkId(clerkUserId: string) {
   const db = await getDb();
-  return db!.select().from(users).where(users.id.eq(openId)).single();
-};
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+  const result = await db.select().from(users).where(eq(users.clerkUserId, clerkUserId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
 
-// New query helper functions
-
-export const getInvoicesByUserId = async (userId: number) => {
+export async function deleteUserByClerkId(clerkUserId: string) {
   const db = await getDb();
-  return db!.select().from(invoices).where(invoices.userId.eq(userId));
-};
+  if (!db) {
+    console.warn("[Database] Cannot delete user: database not available");
+    return;
+  }
+  await db.delete(users).where(eq(users.clerkUserId, clerkUserId));
+}
 
-export const getClientsByUserId = async (userId: number) => {
-  const db = await getDb();
-  return db!.select().from(clients).where(clients.userId.eq(userId));
-};
-
-export const getSubscriptionsByUserId = async (userId: number) => {
-  const db = await getDb();
-  return db!.select().from(subscriptions).where(subscriptions.userId.eq(userId));
-};
-
-export const createInvoice = async (invoiceData: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt'>) => {
-  const db = await getDb();
-  return db!.insert(invoices).values(invoiceData).returning();
-};
-
-export const createClient = async (clientData: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>) => {
-  const db = await getDb();
-  return db!.insert(clients).values(clientData).returning();
-};
-
-export const createSubscription = async (subscriptionData: Omit<Subscription, 'id' | 'createdAt' | 'updatedAt'>) => {
-  const db = await getDb();
-  return db!.insert(subscriptions).values(subscriptionData).returning();
-};
-
-export const updateInvoiceStatus = async (invoiceId: number, status: string) => {
-  const db = await getDb();
-  return db!.update(invoices).set({ status }).where(invoices.id.eq(invoiceId));
-};
-
-export const updateClient = async (clientId: number, clientData: Partial<Client>) => {
-  const db = await getDb();
-  return db!.update(clients).set(clientData).where(clients.id.eq(clientId));
-};
-
-export const updateSubscription = async (subscriptionId: number, subscriptionData: Partial<Subscription>) => {
-  const db = await getDb();
-  return db!.update(subscriptions).set(subscriptionData).where(subscriptions.id.eq(subscriptionId));
-};
+// TODO: add feature queries here as your schema grows.
