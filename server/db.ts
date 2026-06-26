@@ -1,108 +1,101 @@
-import { createPool } from "mysql2/promise";
-import { drizzle } from "drizzle-orm/mysql-core";
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { InsertUser, users } from "../drizzle/schema";
+import { ENV } from './_core/env';
 
-// Users table already exists — DO NOT modify
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", 255).notNull(),
-  email: varchar("email", 255).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+let _db: ReturnType<typeof drizzle> | null = null;
 
-// Add your tables below:
-export const invoices = mysqlTable("invoices", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  invoiceNumber: varchar("invoiceNumber", 255).notNull(),
-  clientInformation: text("clientInformation").notNull(),
-  amount: int("amount").notNull(),
-  status: mysqlEnum("status", ["pending", "paid", "overdue"]).notNull(),
-  dueDate: timestamp("dueDate").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export const timeTracking = mysqlTable("time_tracking", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  projectId: int("projectId").notNull(),
-  hours: int("hours").notNull(),
-  description: text("description"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export const subscriptions = mysqlTable("subscriptions", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  level: mysqlEnum("level", ["basic", "premium", "enterprise"]).notNull(),
-  startDate: timestamp("startDate").defaultNow().notNull(),
-  endDate: timestamp("endDate"),
-  status: mysqlEnum("status", ["active", "inactive", "canceled"]).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export const payments = mysqlTable("payments", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  amount: int("amount").notNull(),
-  paymentDate: timestamp("paymentDate").defaultNow().notNull(),
-  status: mysqlEnum("status", ["completed", "failed", "pending"]).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-export type Invoice = typeof invoices.$inferSelect;
-export type TimeTracking = typeof timeTracking.$inferSelect;
-export type Subscription = typeof subscriptions.$inferSelect;
-export type Payment = typeof payments.$inferSelect;
-
-let db: ReturnType<typeof drizzle> | null = null;
-
+// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
-  if (!db) {
-    const pool = createPool({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-    });
-    db = drizzle(pool);
+  if (!_db && process.env.DATABASE_URL) {
+    try {
+      _db = drizzle(process.env.DATABASE_URL);
+    } catch (error) {
+      console.warn("[Database] Failed to connect:", error);
+      _db = null;
+    }
   }
-  return db;
+  return _db;
 }
 
-export async function upsertUser(openId: string, email: string) {
+export async function upsertUser(user: InsertUser): Promise<void> {
+  if (!user.clerkUserId) {
+    throw new Error("User clerkUserId is required for upsert");
+  }
   const db = await getDb();
-  await db!.insert(users).values({ openId, email }).onDuplicateKeyUpdate({ email });
+  if (!db) {
+    console.warn("[Database] Cannot upsert user: database not available");
+    return;
+  }
+
+  try {
+    const values: InsertUser = {
+      clerkUserId: user.clerkUserId,
+    };
+    const updateSet: Record<string, unknown> = {};
+
+    const textFields = ["name", "email", "loginMethod"] as const;
+    type TextField = (typeof textFields)[number];
+
+    const assignNullable = (field: TextField) => {
+      const value = user[field];
+      if (value === undefined) return;
+      const normalized = value ?? null;
+      values[field] = normalized;
+      updateSet[field] = normalized;
+    };
+
+    textFields.forEach(assignNullable);
+
+    if (user.lastSignedIn !== undefined) {
+      values.lastSignedIn = user.lastSignedIn;
+      updateSet.lastSignedIn = user.lastSignedIn;
+    }
+
+    if (user.role !== undefined) {
+      values.role = user.role;
+      updateSet.role = user.role;
+    } else if (user.clerkUserId === ENV.ownerClerkUserId) {
+      values.role = 'admin';
+      updateSet.role = 'admin';
+    }
+
+    if (!values.lastSignedIn) {
+      values.lastSignedIn = new Date();
+    }
+
+    if (Object.keys(updateSet).length === 0) {
+      updateSet.lastSignedIn = new Date();
+    }
+
+    // PostgreSQL upsert using onConflictDoUpdate
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.clerkUserId,
+      set: updateSet,
+    });
+  } catch (error) {
+    console.error("[Database] Failed to upsert user:", error);
+    throw error;
+  }
 }
 
-export async function getUserByOpenId(openId: string) {
+export async function getUserByClerkId(clerkUserId: string) {
   const db = await getDb();
-  return db!.select().from(users).where(users.openId.eq(openId)).first();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+  const result = await db.select().from(users).where(eq(users.clerkUserId, clerkUserId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
 }
 
-// Query helper functions for each new business table
-
-export async function getInvoicesByUserId(userId: number): Promise<Invoice[]> {
+export async function deleteUserByClerkId(clerkUserId: string) {
   const db = await getDb();
-  return db!.select().from(invoices).where(invoices.userId.eq(userId));
+  if (!db) {
+    console.warn("[Database] Cannot delete user: database not available");
+    return;
+  }
+  await db.delete(users).where(eq(users.clerkUserId, clerkUserId));
 }
 
-export async function getTimeTrackingByUserId(userId: number): Promise<TimeTracking[]> {
-  const db = await getDb();
-  return db!.select().from(timeTracking).where(timeTracking.userId.eq(userId));
-}
-
-export async function getSubscriptionsByUserId(userId: number): Promise<Subscription[]> {
-  const db = await getDb();
-  return db!.select().from(subscriptions).where(subscriptions.userId.eq(userId));
-}
-
-export async function getPaymentsByUserId(userId: number): Promise<Payment[]> {
-  const db = await getDb();
-  return db!.select().from(payments).where(payments.userId.eq(userId));
-}
+// TODO: add feature queries here as your schema grows.
