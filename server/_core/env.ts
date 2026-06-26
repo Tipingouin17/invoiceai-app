@@ -2,6 +2,7 @@ export const ENV = {
   clerkSecretKey: process.env.CLERK_SECRET_KEY ?? "",
   clerkPublishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY ?? "",
   clerkOrganizationId: process.env.CLERK_ORGANIZATION_ID ?? "",
+  clerkWebhookSecret: process.env.CLERK_WEBHOOK_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
   ownerClerkUserId: process.env.OWNER_CLERK_USER_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
