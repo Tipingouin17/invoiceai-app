@@ -159,19 +159,12 @@ function EmptyInvoicesState({ onCreateClick }: { onCreateClick: () => void }) {
         </div>
         <h3 className="text-lg font-semibold mb-2">No invoices yet</h3>
         <p className="text-sm text-muted-foreground mb-6 max-w-sm">
-          Create your first AI-powered invoice in seconds and get paid faster. Connect your email
-          to send directly to clients.
+          Create your first AI-powered invoice in seconds and get paid faster.
         </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button onClick={onCreateClick} className="h-10 px-6">
-            <Plus className="h-4 w-4 mr-2" />
-            Create First Invoice
-          </Button>
-          <Button variant="outline" className="h-10 px-6">
-            <Zap className="h-4 w-4 mr-2" />
-            Import from QuickBooks
-          </Button>
-        </div>
+        <Button onClick={onCreateClick} className="h-10 px-6">
+          <Plus className="h-4 w-4 mr-2" />
+          Create First Invoice
+        </Button>
       </CardContent>
     </Card>
   );
@@ -336,6 +329,7 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {/* Add Client Dialog */}
             <Dialog open={createClientOpen} onOpenChange={setCreateClientOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" className="h-10 px-4">
@@ -348,93 +342,90 @@ export default function Dashboard() {
                   <DialogTitle>Add New Client</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
-                  <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="client-name">Full Name *</Label>
+                    <Input
+                      id="client-name"
+                      placeholder="Jane Smith"
+                      value={clientForm.name}
+                      onChange={(e) =>
+                        setClientForm((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="client-email">Email Address *</Label>
+                    <Input
+                      id="client-email"
+                      type="email"
+                      placeholder="jane@company.com"
+                      value={clientForm.email}
+                      onChange={(e) =>
+                        setClientForm((prev) => ({ ...prev, email: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="client-company">Company</Label>
+                    <Input
+                      id="client-company"
+                      placeholder="Acme Corp"
+                      value={clientForm.company}
+                      onChange={(e) =>
+                        setClientForm((prev) => ({ ...prev, company: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="client-phone">Phone</Label>
+                    <Input
+                      id="client-phone"
+                      placeholder="+1 (555) 000-0000"
+                      value={clientForm.phone}
+                      onChange={(e) =>
+                        setClientForm((prev) => ({ ...prev, phone: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="client-name">Full Name *</Label>
-                      <Input
-                        id="client-name"
-                        placeholder="Jane Smith"
-                        value={clientForm.name}
-                        onChange={(e) =>
-                          setClientForm((prev) => ({ ...prev, name: e.target.value }))
+                      <Label>Currency</Label>
+                      <Select
+                        value={clientForm.currency}
+                        onValueChange={(val) =>
+                          setClientForm((prev) => ({ ...prev, currency: val }))
                         }
-                      />
+                      >
+                        <SelectTrigger className="h-10">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="USD">USD</SelectItem>
+                          <SelectItem value="EUR">EUR</SelectItem>
+                          <SelectItem value="GBP">GBP</SelectItem>
+                          <SelectItem value="CAD">CAD</SelectItem>
+                          <SelectItem value="AUD">AUD</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="client-email">Email Address *</Label>
-                      <Input
-                        id="client-email"
-                        type="email"
-                        placeholder="jane@company.com"
-                        value={clientForm.email}
-                        onChange={(e) =>
-                          setClientForm((prev) => ({ ...prev, email: e.target.value }))
+                      <Label>Payment Terms</Label>
+                      <Select
+                        value={clientForm.paymentTermsDays}
+                        onValueChange={(val) =>
+                          setClientForm((prev) => ({ ...prev, paymentTermsDays: val }))
                         }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="client-company">Company</Label>
-                      <Input
-                        id="client-company"
-                        placeholder="Acme Corp"
-                        value={clientForm.company}
-                        onChange={(e) =>
-                          setClientForm((prev) => ({ ...prev, company: e.target.value }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="client-phone">Phone</Label>
-                      <Input
-                        id="client-phone"
-                        placeholder="+1 (555) 000-0000"
-                        value={clientForm.phone}
-                        onChange={(e) =>
-                          setClientForm((prev) => ({ ...prev, phone: e.target.value }))
-                        }
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>Currency</Label>
-                        <Select
-                          value={clientForm.currency}
-                          onValueChange={(val) =>
-                            setClientForm((prev) => ({ ...prev, currency: val }))
-                          }
-                        >
-                          <SelectTrigger className="h-10">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="USD">USD</SelectItem>
-                            <SelectItem value="EUR">EUR</SelectItem>
-                            <SelectItem value="GBP">GBP</SelectItem>
-                            <SelectItem value="CAD">CAD</SelectItem>
-                            <SelectItem value="AUD">AUD</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Payment Terms</Label>
-                        <Select
-                          value={clientForm.paymentTermsDays}
-                          onValueChange={(val) =>
-                            setClientForm((prev) => ({ ...prev, paymentTermsDays: val }))
-                          }
-                        >
-                          <SelectTrigger className="h-10">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="7">Net 7</SelectItem>
-                            <SelectItem value="14">Net 14</SelectItem>
-                            <SelectItem value="30">Net 30</SelectItem>
-                            <SelectItem value="60">Net 60</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      >
+                        <SelectTrigger className="h-10">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="7">Net 7</SelectItem>
+                          <SelectItem value="14">Net 14</SelectItem>
+                          <SelectItem value="30">Net 30</SelectItem>
+                          <SelectItem value="60">Net 60</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
@@ -459,6 +450,7 @@ export default function Dashboard() {
               </DialogContent>
             </Dialog>
 
+            {/* Create Invoice Dialog */}
             <Dialog open={createInvoiceOpen} onOpenChange={setCreateInvoiceOpen}>
               <DialogTrigger asChild>
                 <Button className="h-10 px-4">
@@ -749,7 +741,7 @@ export default function Dashboard() {
                           {formatDate(invoice.dueDate)}
                         </td>
                         <td className="px-4 py-3 text-right font-medium">
-                          {formatCurrency(invoice.totalAmount, invoice.currency)}
+                          {formatCurrency(invoice.totalAmount || invoice.total, invoice.currency)}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <Badge
@@ -786,7 +778,7 @@ export default function Dashboard() {
         </Card>
 
         {/* AI Insights */}
-        {invoices.some((inv: any) => inv.status === "overdue") && (
+        {overdueCount > 0 && (
           <Alert>
             <TrendingUp className="h-4 w-4" />
             <AlertDescription>
