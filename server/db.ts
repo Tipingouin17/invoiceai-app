@@ -296,3 +296,7 @@ export async function getInvoicesByClientId(
   return db
     .select()
     .from(invoices
+)
+    .where(and(eq(invoices.clientId, clientId), eq(invoices.userId, userId)))
+    .orderBy(desc(invoices.createdAt));
+}
