@@ -156,4 +156,4 @@ export const paymentReminders = pgTable("payment_reminders", {
 });
 
 export type PaymentReminder = typeof paymentReminders.$inferSelect;
-export type NewPaymentReminder = typeof
+export type NewPaymentReminder = typeof paymentReminders.$inferInsert;
