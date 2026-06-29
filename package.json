@@ -1,11 +1,11 @@
 {
-  "name": "invoiceai-app",
+  "name": "invoiceai",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
-    "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "drizzle-kit push && vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "test": "vitest run",
@@ -73,6 +73,7 @@
     "recharts": "^2.15.2",
     "sonner": "^2.0.7",
     "streamdown": "^1.4.0",
+    "stripe": "^17.7.0",
     "superjson": "^1.13.3",
     "svix": "^1.96.1",
     "tailwind-merge": "^3.3.1",
