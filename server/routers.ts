@@ -345,3 +345,158 @@ const featureRouter = router({
 
   update: protectedProcedure
     .input(
+      z.object({
+        id: z.number().int().positive(),
+        status: z.enum(["draft", "sent", "viewed", "partially_paid", "paid", "overdue", "cancelled", "written_off"]).optional(),
+        notes: z.string().optional(),
+        dueDate: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db
+        .select()
+        .from(invoices)
+        .where(and(eq(invoices.id, input.id), eq(invoices.userId, ctx.user.id)))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      if (input.status !== undefined) updateData.status = input.status;
+      if (input.notes !== undefined) updateData.notes = input.notes;
+      if (input.dueDate !== undefined) updateData.dueDate = new Date(input.dueDate);
+      if (input.status === "paid") {
+        updateData.paidAt = new Date();
+        updateData.amountPaid = existing.total;
+        updateData.amountDue = "0";
+      }
+      const [updated] = await db
+        .update(invoices)
+        .set(updateData)
+        .where(and(eq(invoices.id, input.id), eq(invoices.userId, ctx.user.id)))
+        .returning();
+      return updated;
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db
+        .select()
+        .from(invoices)
+        .where(and(eq(invoices.id, input.id), eq(invoices.userId, ctx.user.id)))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, input.id));
+      await db.delete(invoices).where(and(eq(invoices.id, input.id), eq(invoices.userId, ctx.user.id)));
+      return { success: true };
+    }),
+
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const allInvoices = await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.userId, ctx.user.id));
+    const totalPaid = allInvoices
+      .filter((inv) => inv.status === "paid")
+      .reduce((sum, inv) => sum + Number(inv.total), 0);
+    const totalOutstanding = allInvoices
+      .filter((inv) => ["sent", "viewed", "partially_paid", "overdue"].includes(inv.status))
+      .reduce((sum, inv) => sum + Number(inv.amountDue), 0);
+    const overdueCount = allInvoices.filter((inv) => inv.status === "overdue").length;
+    return {
+      totalPaid: String(totalPaid),
+      totalOutstanding: String(totalOutstanding),
+      overdueCount,
+      totalCount: allInvoices.length,
+    };
+  }),
+});
+
+// ─── Invoices Router (alias for feature) ─────────────────────────────────────
+const invoicesRouter = featureRouter;
+
+// ─── Reminders Router ─────────────────────────────────────────────────────────
+const remindersRouter = router({
+  send: protectedProcedure
+    .input(
+      z.object({
+        invoiceId: z.number().int().positive(),
+        clientId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [invoice] = await db
+        .select()
+        .from(invoices)
+        .where(and(eq(invoices.id, input.invoiceId), eq(invoices.userId, ctx.user.id)))
+        .limit(1);
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      const [client] = await db
+        .select()
+        .from(clients)
+        .where(and(eq(clients.id, input.clientId), eq(clients.userId, ctx.user.id)))
+        .limit(1);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "Client not found" });
+
+      // Create a reminder record
+      await db.insert(paymentReminders).values({
+        userId: ctx.user.id,
+        invoiceId: input.invoiceId,
+        clientId: input.clientId,
+        channel: "email",
+        status: "sent",
+        scheduledAt: new Date(),
+        sentAt: new Date(),
+        subject: `Payment Reminder: Invoice ${invoice.invoiceNumber}`,
+        body: `Dear ${client.name},\n\nThis is a friendly reminder that invoice ${invoice.invoiceNumber} for ${invoice.currency} ${invoice.amountDue} is due on ${invoice.dueDate?.toLocaleDateString()}.\n\nPlease arrange payment at your earliest convenience.\n\nThank you.`,
+        aiGenerated: true,
+      });
+
+      // Update invoice reminder count
+      await db
+        .update(invoices)
+        .set({
+          remindersSentCount: sql`${invoices.remindersSentCount} + 1`,
+          lastReminderSentAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(invoices.id, input.invoiceId));
+
+      return { success: true };
+    }),
+
+  list: protectedProcedure
+    .input(z.object({ invoiceId: z.number().int().positive().optional() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const conditions = [eq(paymentReminders.userId, ctx.user.id)];
+      if (input.invoiceId) {
+        conditions.push(eq(paymentReminders.invoiceId, input.invoiceId));
+      }
+      return db
+        .select()
+        .from(paymentReminders)
+        .where(and(...conditions))
+        .orderBy(desc(paymentReminders.createdAt));
+    }),
+});
+
+// ─── App Router ───────────────────────────────────────────────────────────────
+export const appRouter = router({
+  ...systemRouter,
+  payments: paymentsRouter,
+  clients: clientsRouter,
+  feature: featureRouter,
+  invoices: invoicesRouter,
+  reminders: remindersRouter,
+});
+
+export type AppRouter = typeof appRouter;
