@@ -1,79 +1,298 @@
-import { drizzle } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { users, invoices, clients, subscriptions } from "../drizzle/schema";
+import * as schema from "../drizzle/schema";
+import { eq, and, desc, asc, sql } from "drizzle-orm";
+import {
+  users,
+  subscriptions,
+  clients,
+  invoices,
+  invoiceLineItems,
+  paymentReminders,
+} from "../drizzle/schema";
+import type {
+  Subscription,
+  NewSubscription,
+  Client,
+  NewClient,
+  Invoice,
+  NewInvoice,
+  InvoiceLineItem,
+  NewInvoiceLineItem,
+  PaymentReminder,
+  NewPaymentReminder,
+} from "../drizzle/schema";
 
-// Initialize the database connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-const db = drizzle(pool);
+let db: ReturnType<typeof drizzle> | null = null;
 
 export async function getDb() {
+  if (!db) {
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    db = drizzle(pool, { schema });
+  }
   return db;
 }
 
-// Existing functions (DO NOT modify)
-export async function upsertUser(openId: string, email: string) {
+export async function upsertUser(data: {
+  openId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  imageUrl?: string;
+}) {
   const db = await getDb();
-  await db
+  const existing = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, data.openId))
+    .limit(1);
+
+  if (existing.length > 0) {
+    const [updated] = await db
+      .update(users)
+      .set({
+        email: data.email,
+        firstName: data.firstName ?? null,
+        lastName: data.lastName ?? null,
+        imageUrl: data.imageUrl ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.openId, data.openId))
+      .returning();
+    return updated;
+  }
+
+  const [created] = await db
     .insert(users)
-    .values({ openId, email })
-    .onConflict("openId")
-    .doUpdate()
-    .set({ email });
+    .values({
+      openId: data.openId,
+      email: data.email,
+      firstName: data.firstName ?? null,
+      lastName: data.lastName ?? null,
+      imageUrl: data.imageUrl ?? null,
+    })
+    .returning();
+  return created;
 }
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  return db.select().from(users).where(users.openId.eq(openId)).single();
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
+  return user ?? null;
 }
 
-// New query helper functions
+// ─── Subscription Helpers ───────────────────────────────────────────────────
 
-// Invoices
-export async function getInvoicesByUserId(userId: number) {
+export async function getSubscriptionByUserId(
+  userId: number
+): Promise<Subscription | null> {
   const db = await getDb();
-  return db.select().from(invoices).where(invoices.userId.eq(userId));
+  const [sub] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.userId, userId))
+    .orderBy(desc(subscriptions.createdAt))
+    .limit(1);
+  return sub ?? null;
 }
 
-export async function createInvoice(data: Omit<Invoice, "invoiceId" | "createdAt" | "updatedAt">) {
+export async function getSubscriptionByStripeCustomerId(
+  stripeCustomerId: string
+): Promise<Subscription | null> {
   const db = await getDb();
-  return db.insert(invoices).values(data).returning();
+  const [sub] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.stripeCustomerId, stripeCustomerId))
+    .limit(1);
+  return sub ?? null;
 }
 
-export async function updateInvoice(invoiceId: number, data: Partial<Omit<Invoice, "invoiceId" | "userId" | "createdAt">>) {
+export async function getSubscriptionByStripeSubscriptionId(
+  stripeSubscriptionId: string
+): Promise<Subscription | null> {
   const db = await getDb();
-  return db.update(invoices).set(data).where(invoices.invoiceId.eq(invoiceId)).returning();
+  const [sub] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, stripeSubscriptionId))
+    .limit(1);
+  return sub ?? null;
 }
 
-// Clients
-export async function getClientsByUserId(userId: number) {
+export async function createSubscription(
+  data: NewSubscription
+): Promise<Subscription> {
   const db = await getDb();
-  return db.select().from(clients).where(clients.userId.eq(userId));
+  const [sub] = await db.insert(subscriptions).values(data).returning();
+  return sub;
 }
 
-export async function createClient(data: Omit<Client, "clientId" | "createdAt" | "updatedAt">) {
+export async function updateSubscription(
+  id: number,
+  data: Partial<Omit<Subscription, "id" | "createdAt">>
+): Promise<Subscription | null> {
   const db = await getDb();
-  return db.insert(clients).values(data).returning();
+  const [updated] = await db
+    .update(subscriptions)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(subscriptions.id, id))
+    .returning();
+  return updated ?? null;
 }
 
-export async function updateClient(clientId: number, data: Partial<Omit<Client, "clientId" | "userId" | "createdAt">>) {
+export async function upsertSubscriptionByUserId(
+  userId: number,
+  data: Partial<NewSubscription>
+): Promise<Subscription> {
   const db = await getDb();
-  return db.update(clients).set(data).where(clients.clientId.eq(clientId)).returning();
+  const existing = await getSubscriptionByUserId(userId);
+  if (existing) {
+    const [updated] = await db
+      .update(subscriptions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(subscriptions.id, existing.id))
+      .returning();
+    return updated;
+  }
+  const [created] = await db
+    .insert(subscriptions)
+    .values({ userId, ...data } as NewSubscription)
+    .returning();
+  return created;
 }
 
-// Subscriptions
-export async function getSubscriptionsByUserId(userId: number) {
+// ─── Client Helpers ─────────────────────────────────────────────────────────
+
+export async function getClientsByUserId(userId: number): Promise<Client[]> {
   const db = await getDb();
-  return db.select().from(subscriptions).where(subscriptions.userId.eq(userId));
+  return db
+    .select()
+    .from(clients)
+    .where(and(eq(clients.userId, userId)))
+    .orderBy(asc(clients.name));
 }
 
-export async function createSubscription(data: Omit<Subscription, "subscriptionId" | "createdAt" | "updatedAt">) {
+export async function getActiveClientsByUserId(
+  userId: number
+): Promise<Client[]> {
   const db = await getDb();
-  return db.insert(subscriptions).values(data).returning();
+  return db
+    .select()
+    .from(clients)
+    .where(and(eq(clients.userId, userId), eq(clients.status, "active")))
+    .orderBy(asc(clients.name));
 }
 
-export async function updateSubscription(subscriptionId: number, data: Partial<Omit<Subscription, "subscriptionId" | "userId" | "createdAt">>) {
+export async function getClientById(
+  id: number,
+  userId: number
+): Promise<Client | null> {
   const db = await getDb();
-  return db.update(subscriptions).set(data).where(subscriptions.subscriptionId.eq(subscriptionId)).returning();
+  const [client] = await db
+    .select()
+    .from(clients)
+    .where(and(eq(clients.id, id), eq(clients.userId, userId)))
+    .limit(1);
+  return client ?? null;
 }
+
+export async function createClient(data: NewClient): Promise<Client> {
+  const db = await getDb();
+  const [client] = await db.insert(clients).values(data).returning();
+  return client;
+}
+
+export async function updateClient(
+  id: number,
+  userId: number,
+  data: Partial<Omit<Client, "id" | "createdAt">>
+): Promise<Client | null> {
+  const db = await getDb();
+  const [updated] = await db
+    .update(clients)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(eq(clients.id, id), eq(clients.userId, userId)))
+    .returning();
+  return updated ?? null;
+}
+
+export async function deleteClient(
+  id: number,
+  userId: number
+): Promise<boolean> {
+  const db = await getDb();
+  const result = await db
+    .update(clients)
+    .set({ status: "archived", updatedAt: new Date() })
+    .where(and(eq(clients.id, id), eq(clients.userId, userId)))
+    .returning();
+  return result.length > 0;
+}
+
+export async function updateClientFinancials(
+  clientId: number,
+  userId: number
+): Promise<void> {
+  const db = await getDb();
+  const clientInvoices = await db
+    .select()
+    .from(invoices)
+    .where(and(eq(invoices.clientId, clientId), eq(invoices.userId, userId)));
+
+  const totalInvoiced = clientInvoices
+    .reduce((sum, inv) => sum + parseFloat(inv.total ?? "0"), 0)
+    .toFixed(2);
+
+  const totalPaid = clientInvoices
+    .reduce((sum, inv) => sum + parseFloat(inv.amountPaid ?? "0"), 0)
+    .toFixed(2);
+
+  const paidInvoices = clientInvoices.filter(
+    (inv) => inv.status === "paid" && inv.paidAt && inv.issueDate
+  );
+
+  let averageDaysToPayment: string | null = null;
+  if (paidInvoices.length > 0) {
+    const totalDays = paidInvoices.reduce((sum, inv) => {
+      const issued = new Date(inv.issueDate).getTime();
+      const paid = new Date(inv.paidAt!).getTime();
+      return sum + (paid - issued) / (1000 * 60 * 60 * 24);
+    }, 0);
+    averageDaysToPayment = (totalDays / paidInvoices.length).toFixed(2);
+  }
+
+  await db
+    .update(clients)
+    .set({
+      totalInvoiced,
+      totalPaid,
+      averageDaysToPayment,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(clients.id, clientId), eq(clients.userId, userId)));
+}
+
+// ─── Invoice Helpers ─────────────────────────────────────────────────────────
+
+export async function getInvoicesByUserId(userId: number): Promise<Invoice[]> {
+  const db = await getDb();
+  return db
+    .select()
+    .from(invoices)
+    .where(eq(invoices.userId, userId))
+    .orderBy(desc(invoices.createdAt));
+}
+
+export async function getInvoicesByClientId(
+  clientId: number,
+  userId: number
+): Promise<Invoice[]> {
+  const db = await getDb();
+  return db
+    .select()
+    .from(invoices
