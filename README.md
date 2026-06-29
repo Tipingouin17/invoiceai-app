@@ -1,17 +1,19 @@
 # InvoiceAI
 
-> Effortless Invoice Management for Freelancers
+> Streamline Your Invoicing with AI Precision
 
 ## Overview
 
-**Problem:** helps freelancers manage their invoices automatically using AI
+**Problem:** freelancers spending too much time on invoicing and chasing late payments
 
-**Solution:** a SaaS tool that automates invoice management using AI
+**Solution:** an AI-powered invoicing tool that auto-generates professional invoices, sends payment reminders, and predicts which clients are likely to pay late
 
 ## Features
 
 - Stripe
+- Gmail/Outlook
 - QuickBooks
+- Zapier
 
 ## Tech Stack
 
