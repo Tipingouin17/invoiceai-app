@@ -4,20 +4,5 @@
   "installCommand": "pnpm install --no-frozen-lockfile",
   "env": {
     "ENABLE_EXPERIMENTAL_COREPACK": "1"
-  },
-  "builds": [
-    {
-      "src": "api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["dist/public/**"]
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/api/index.ts"
-    }
-  ]
+  }
 }
